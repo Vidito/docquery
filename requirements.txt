@@ -5,3 +5,4 @@ langchain-google-genai
 langchain-community
 google-generativeai
 nest-asyncio
+faiss-cpu
