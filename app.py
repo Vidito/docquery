@@ -1,14 +1,13 @@
 import streamlit as st
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_community.vectorstores import FAISS
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
 from langchain.prompts import PromptTemplate
-import google.generativeai as genai
+from langchain_groq import ChatGroq
+from langchain_huggingface import HuggingFaceEmbeddings
 import os
-
 
 import nest_asyncio
 
@@ -16,21 +15,20 @@ nest_asyncio.apply()
 
 
 # --- Configuration ---
-def configure_gemini():
-    """Sets up the Google Gemini API key from Streamlit secrets or sidebar input."""
+def configure_groq():
+    """Sets up the Groq API key from Streamlit secrets or sidebar input."""
     try:
-        api_key = st.secrets["GOOGLE_API_KEY"]
+        groq_api_key = st.secrets["GROQ_API_KEY"]
     except (FileNotFoundError, KeyError):
-        api_key = st.sidebar.text_input(
-            "Enter Google API Key", type="password", key="api_key_input"
+        groq_api_key = st.sidebar.text_input(
+            "Enter Groq API Key", type="password", key="groq_api_key_input"
         )
 
-    if api_key:
-        os.environ["GOOGLE_API_KEY"] = api_key
-        genai.configure(api_key=api_key)
+    if groq_api_key:
+        os.environ["GROQ_API_KEY"] = groq_api_key
         return True
     else:
-        st.sidebar.warning("Please enter your Google Gemini API Key to proceed.")
+        st.sidebar.warning("Please enter your Groq API Key to proceed.")
         return False
 
 
@@ -75,7 +73,10 @@ def get_vector_store(chunks):
     metadatas = [
         {"source": chunk["source"], "page": str(chunk["page"])} for chunk in chunks
     ]
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+    # Use an open-source model from Hugging Face for embeddings
+    embeddings = HuggingFaceEmbeddings(
+        model_name="ltg/norbert3-xs", model_kwargs={"trust_remote_code": True}
+    )
     vector_store = FAISS.from_texts(texts, embedding=embeddings, metadatas=metadatas)
     return vector_store
 
@@ -83,32 +84,16 @@ def get_vector_store(chunks):
 # --- Conversational Chain ---
 def get_conversation_chain(vectorstore):
     """Creates a conversational retrieval chain with memory."""
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0.3)
+    llm = ChatGroq(model="openai/gpt-oss-20b", temperature=0.3)
 
     custom_prompt_template = """
     Create a final answer to the given questions using the provided document excerpts (given in no particular order) as sources. ALWAYS include a "SOURCES" section in your answer citing only the minimal set of sources needed to answer the question. If you are unable to answer the question, simply state that you do not have enough information to answer the question and leave the SOURCES section empty. Use only the provided documents and do not attempt to fabricate an answer.
 
----------
-
-QUESTION: What  is the purpose of ARPA-H?
-=========
-Content: More support for patients and families. \n\nTo get there, I call on Congress to fund ARPA-H, the Advanced Research Projects Agency for Health. \n\nIt's based on DARPA—the Defense Department project that led to the Internet, GPS, and so much more.  \n\nARPA-H will have a singular purpose—to drive breakthroughs in cancer, Alzheimer's, diabetes, and more.
-SOURCES: 1-32
-Content: While we're at it, let's make sure every American can get the health care they need. \n\nWe've already made historic investments in health care. \n\nWe've made it easier for Americans to get the care they need, when they need it. \n\nWe've made it easier for Americans to get the treatments they need, when they need them. \n\nWe've made it easier for Americans to get the medications they need, when they need them.
-SOURCES: 1-33
-Content: The V.A. is pioneering new ways of linking toxic exposures to disease, already helping  veterans get the care they deserve. \n\nWe need to extend that same care to all Americans. \n\nThat's why I'm calling on Congress to pass legislation that would establish a national registry of toxic exposures, and provide health care and financial assistance to those affected.
-SOURCES: 1-30
-=========
-FINAL ANSWER: The purpose of ARPA-H is to drive breakthroughs in cancer, Alzheimer's, diabetes, and more.
-SOURCES: 1-32
-
----------
-
-QUESTION: {question}
-=========
-{context}
-=========
-FINAL ANSWER:
+    QUESTION: {question}
+    =========
+    Context: {context}
+    =========
+    ANSWER:
 
     """
 
@@ -147,7 +132,7 @@ def main():
         st.title("Configuration")
         st.markdown("---")
 
-        if not configure_gemini():
+        if not configure_groq():
             st.stop()
 
         st.header("Upload Your Files")
